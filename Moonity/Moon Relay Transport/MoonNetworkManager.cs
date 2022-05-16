@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using NativeWebSocket;
+using System.IO;
 
 public class MoonNetworkManager : MonoBehaviour
 {
@@ -40,6 +41,24 @@ public class MoonNetworkManager : MonoBehaviour
                 DontDestroyOnLoad(gameObject);
             }
         }
+
+        var oneLevelUp = Application.dataPath + "/../";
+        var dirInfo = new System.IO.DirectoryInfo(oneLevelUp).GetFiles();
+
+        foreach (var item in dirInfo)
+        {
+            if(item.Name == "player.txt")
+            {
+                string savedFile = File.ReadAllText(item.Name);
+                //Debug.LogError(savedFile);
+                MOON_KEY = savedFile;
+            }
+        }
+
+        
+
+        
+
     }
 
     //StartServer
@@ -87,12 +106,27 @@ public class MoonNetworkManager : MonoBehaviour
     void OnClientConnect()
     {
         int ID = UnityEngine.Random.Range(int.MinValue, int.MaxValue);
-        moonSocket.SendText(MOON_KEY + ID + " join");
+        //moonSocket.SendText(MOON_KEY + ID + " join");
+
+        NetworkMessage networkMessage = new NetworkMessage
+        {
+            playerID = ID,
+            playerName = GameStart.instance.playerName,
+            commands = "Join",
+            position = Vector3.zero,
+            rotation = Vector3.zero
+        };
+
+        
+
         GameObject p = Instantiate(playerPrefab, transform.position, transform.rotation);
         p.gameObject.GetComponent<MoonNetIdentity>().netIdentity = ID;
         p.gameObject.GetComponent<MoonNetIdentity>().isClient = true;
+        p.GetComponent<MoonTransform>().playerName = GameStart.instance.playerName;
         localPlayer = p;
         playerList.Add(localPlayer.GetComponent<MoonNetIdentity>());
+
+        moonSocket.SendText(MOON_KEY + networkMessage);
     }
 
     //Send moon packets to server //async //
@@ -128,7 +162,64 @@ public class MoonNetworkManager : MonoBehaviour
             latestRecieve = Time.time;
             return;
         }
-        
+
+        //Debug.Log(message);
+        NetworkMessage networkMessage = JsonUtility.FromJson<NetworkMessage>(message);
+
+
+        if(networkMessage.commands == "Join")
+        {
+            GameObject newclient = Instantiate(playerPrefab, transform.position, transform.rotation);
+            newclient.GetComponent<MoonTransform>().playerName = networkMessage.playerName;
+            newclient.GetComponent<MoonNetIdentity>().netIdentity = networkMessage.playerID;
+            playerList.Add(newclient.GetComponent<MoonNetIdentity>());
+            return;
+        }
+        if (networkMessage.commands == "Leave")
+        {
+            for (int i = 0; i < playerList.Count; i++)
+            {
+                if (playerList[i].netIdentity == networkMessage.playerID)
+                {
+                    Destroy(playerList[i].gameObject);
+                    playerList.RemoveAt(i);
+                    return;
+                }
+            }
+        }
+
+        MoonNetIdentity[] players = FindObjectsOfType<MoonNetIdentity>();
+        bool existsPlayer = false;
+        MoonTransform netTransform;
+
+
+        for (int i = 0; i < players.Length; i++)
+        {
+            if (players[i].netIdentity == networkMessage.playerID)
+            {
+                existsPlayer = true;
+                netTransform = players[i].gameObject.GetComponent<MoonTransform>();
+                netTransform.SyncNetTransform(networkMessage.position);
+                netTransform.SyncNetRotation(networkMessage.rotation);
+                return;
+            }
+        }
+        if (existsPlayer == false)
+        {
+            GameObject client = Instantiate(playerPrefab, transform.position, transform.rotation);
+            client.GetComponent<MoonNetIdentity>().netIdentity = networkMessage.playerID;
+            client.GetComponent<MoonTransform>().SyncNetTransform(networkMessage.position);
+            client.GetComponent<MoonTransform>().SyncNetRotation(networkMessage.rotation);
+            client.GetComponent<MoonTransform>().playerName = networkMessage.playerName;
+            playerList.Add(client.GetComponent<MoonNetIdentity>());
+        }
+
+
+
+        /*
+
+        return;
+
         //[0]ID [1]X [2]Y [3]Z [4]Rx [5]Ry [6]Rz
         string[] data = message.Split(' ');
         //[1] different state
@@ -203,7 +294,7 @@ public class MoonNetworkManager : MonoBehaviour
             }
             playerList.Add(client.GetComponent<MoonNetIdentity>());
         }
-
+        */
 
     }
 
@@ -232,7 +323,15 @@ public class MoonNetworkManager : MonoBehaviour
 
     private async void OnApplicationQuit()
     {
-        await moonSocket.SendText(MOON_KEY + localPlayer.GetComponent<MoonNetIdentity>().netIdentity + " leave");
+        NetworkMessage networkMessage = new NetworkMessage
+        {
+            playerID = localPlayer.GetComponent<MoonNetIdentity>().netIdentity,
+            commands = "Leave",
+            position = Vector3.zero,
+            rotation = Vector3.zero
+        };
+
+        await moonSocket.SendText(MOON_KEY + networkMessage);
         await moonSocket.Close();
     }
 

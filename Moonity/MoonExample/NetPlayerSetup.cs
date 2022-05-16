@@ -29,10 +29,19 @@ public class NetPlayerSetup : MonoBehaviour
             }
         }
 
-
-        SetName(GameStart.instance.playerName);
-
         
+        //SetName(GameStart.instance.playerName);
+
+        //GetComponent<MoonTransform>().playerName = GameStart.instance.playerName;
+
+
+
+    }
+
+
+    private void Update()
+    {
+        SetName(GetComponent<MoonTransform>().playerName);
     }
 
 
